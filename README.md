@@ -33,10 +33,16 @@ pip install -e .[dev]
 
 ## CLI
 
-Generate a report spec:
+Generate a report spec with the offline rules planner:
 
 ```bash
 pbigen generate-spec "Show revenue by region as a bar chart" --csv-path data/sales.csv --pretty
+```
+
+Generate with the Claude-backed LLM planner:
+
+```bash
+pbigen generate-spec "Show revenue by region as a bar chart" --csv-path data/sales.csv --planner llm --pretty
 ```
 
 Create a PBIP scaffold:

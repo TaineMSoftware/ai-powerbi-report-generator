@@ -14,7 +14,7 @@ registering it with `register_planner(...)`.
 from .dax import DATE_TABLE, DATE_COLUMN, base_measure, pct_of_total_measure, running_total_measure, yoy_measure
 from .emit import emit_pbip, emit_semantic_model, spec_needs_date_table
 from .layout import apply_layout
-from .planner import Planner, RuleBasedPlanner, get_planner, register_planner
+from .planner import Planner, RuleBasedPlanner, get_planner, register_planner, LLMPlanner
 from .schema_source import ColumnSchema, ColumnType, DatasetSchema, TableSchema, infer_csv_schema
 from .spec import ReportSpec, report_spec_json_schema
 from .validator import ValidationResult, validate_spec

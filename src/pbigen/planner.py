@@ -10,9 +10,12 @@ touching validation, layout, or emission.
 
 from __future__ import annotations
 
+import json
+import os
 import re
+import subprocess
 from dataclasses import dataclass, field as dc_field
-from typing import Protocol, runtime_checkable
+from typing import Protocol, Sequence, runtime_checkable
 
 from . import dax
 from .layout import apply_layout
@@ -31,6 +34,7 @@ from .spec import (
     Visual,
     VisualFields,
     VisualType,
+    report_spec_json_schema,
 )
 
 DEFAULT_TABLE = "Data"
@@ -716,4 +720,75 @@ def split_clauses(text: str) -> list[str]:
     return clauses
 
 
+# ---------------------------------------------------------------------------
+# LLM-backed planner
+# ---------------------------------------------------------------------------
+
+
+def _coerce_json_payload(text: str) -> str:
+    text = text.strip()
+    if not text:
+        raise ValueError("LLM returned empty output")
+    try:
+        json.loads(text)
+        return text
+    except json.JSONDecodeError:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            candidate = text[start : end + 1]
+            json.loads(candidate)
+            return candidate
+        raise
+
+
+class LLMPlanner:
+    """Planner that delegates report-spec generation to an LLM CLI.
+
+    The default backend is Claude with the fable model, invoked through the
+    `claude` command-line tool in print mode. The planner expects the model to
+    return a ReportSpec JSON document.
+    """
+
+    def __init__(
+        self,
+        command: Sequence[str] | None = None,
+    ) -> None:
+        if command is None:
+            command = os.environ.get("PBIGEN_LLM_COMMAND", "claude --model fable").split()
+        self.command = list(command)
+
+    def _build_prompt(self, request: str, schema: DatasetSchema | None, name: str) -> str:
+        schema_payload = schema.model_dump(mode="json") if schema is not None else None
+        return (
+            "You are the LLM planner for a Power BI report generator. "
+            "Return ONLY valid JSON that matches the ReportSpec schema. "
+            "Do not wrap it in markdown or commentary. "
+            "Use the provided dataset schema if present and keep field names exact. "
+            "Leave layout coordinates to the host; set visuals, measures, and filters.\n\n"
+            f"Report name: {name}\n"
+            f"User request: {request}\n"
+            f"Dataset schema JSON: {json.dumps(schema_payload, ensure_ascii=False)}\n"
+            f"ReportSpec schema JSON: {json.dumps(report_spec_json_schema(), ensure_ascii=False)}"
+        )
+
+    def plan(
+        self,
+        request: str,
+        schema: DatasetSchema | None = None,
+        name: str = "Generated Report",
+    ) -> ReportSpec:
+        prompt = self._build_prompt(request, schema, name)
+        command = [*self.command, "--print", "--json-schema", json.dumps(report_spec_json_schema()), prompt]
+        result = subprocess.run(command, capture_output=True, text=True, check=True)
+        payload = _coerce_json_payload(result.stdout)
+        spec = ReportSpec.model_validate_json(payload)
+        if name and spec.name in {"Generated Report", "Report"}:
+            spec.name = name
+        for page in spec.pages:
+            page.height = max(page.height, apply_layout(page.visuals))
+        return spec
+
+
 register_planner("rules", RuleBasedPlanner)
+register_planner("llm", LLMPlanner)
